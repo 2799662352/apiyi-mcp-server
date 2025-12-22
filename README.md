@@ -1,6 +1,11 @@
 # API易 MCP Server
 
+[![Docker Hub](https://img.shields.io/docker/v/zuozuoliang999/apiyi-mcp-server?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/zuozuoliang999/apiyi-mcp-server)
+[![GitHub](https://img.shields.io/github/stars/2799662352/apiyi-mcp-server?style=social)](https://github.com/2799662352/apiyi-mcp-server)
+
 基于 [aistudio-mcp-server](https://github.com/eternnoir/aistudio-mcp-server) 改造，支持 [API易](https://docs.apiyi.com/) 的 Gemini 原生格式调用。
+
+**Docker Hub**: `zuozuoliang999/apiyi-mcp-server`
 
 ## ✨ 特性
 
@@ -59,33 +64,34 @@
 
 ### 3. 🐳 Docker 部署 (推荐)
 
-**无需安装 Node.js，直接使用 Docker！**
+**无需安装 Node.js，直接从 Docker Hub 拉取镜像！**
 
 ```bash
-# 进入项目目录
-cd D:\jianji_FFMPEG\apiyi-mcp-server
-
-# 创建环境变量文件
-echo "APIYI_API_KEY=你的API易密钥" > .env
-
-# 构建并运行
-docker-compose up -d --build
-
-# 查看日志
-docker logs -f apiyi-mcp-server
-```
-
-#### Docker 单独构建
-
-```bash
-# 构建镜像
-docker build -t apiyi-mcp-server .
+# 直接使用 Docker Hub 镜像
+docker pull zuozuoliang999/apiyi-mcp-server:latest
 
 # 运行容器
 docker run -it --rm \
   -e APIYI_API_KEY=你的API易密钥 \
-  -v D:/jianji_FFMPEG:/app/media:ro \
-  apiyi-mcp-server
+  -v /path/to/your/media:/app/media:ro \
+  zuozuoliang999/apiyi-mcp-server:latest
+```
+
+#### 使用 docker-compose
+
+```bash
+# 克隆项目
+git clone https://github.com/2799662352/apiyi-mcp-server.git
+cd apiyi-mcp-server
+
+# 创建环境变量文件
+echo "APIYI_API_KEY=你的API易密钥" > .env
+
+# 启动服务
+docker-compose up -d
+
+# 查看日志
+docker logs -f apiyi-mcp-server
 ```
 
 #### Cursor MCP 配置 (Docker 方式)
@@ -98,8 +104,8 @@ docker run -it --rm \
       "args": [
         "run", "-i", "--rm",
         "-e", "APIYI_API_KEY=你的API易密钥",
-        "-v", "D:/jianji_FFMPEG:/app/media:ro",
-        "apiyi-mcp-server"
+        "-v", "/path/to/your/media:/app/media:ro",
+        "zuozuoliang999/apiyi-mcp-server:latest"
       ]
     }
   }
@@ -244,6 +250,12 @@ npm start
 2. **推理成本**：thinking tokens 会计入输出成本
 3. **代码执行**：仅支持 Python，在沙箱环境中运行
 4. **API 密钥**：使用 API易 密钥，非 Google AI Studio 密钥
+
+## 🔗 链接
+
+- **GitHub**: [https://github.com/2799662352/apiyi-mcp-server](https://github.com/2799662352/apiyi-mcp-server)
+- **Docker Hub**: [https://hub.docker.com/r/zuozuoliang999/apiyi-mcp-server](https://hub.docker.com/r/zuozuoliang999/apiyi-mcp-server)
+- **API易文档**: [https://docs.apiyi.com/](https://docs.apiyi.com/)
 
 ## 📄 许可证
 
