@@ -1,475 +1,465 @@
 #!/usr/bin/env node
 
+/**
+ * API易 MCP Server
+ * @description 基于 Gemini API 的多模态内容生成服务器
+ * @see https://docs.apiyi.com/api-capabilities/gemini-native-format
+ */
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  CallToolResult,
+  TextContent,
 } from '@modelcontextprotocol/sdk/types.js';
 import { GoogleGenAI } from '@google/genai';
 
-class AIStudioMCPServer {
-  private server: Server;
+import type {
+  ServerConfig,
+  GenerateContentArgs,
+  CodeBlock,
+  CodeExecutionResult,
+  RequestConfig,
+  FullRequestConfig,
+  MessageContent,
+} from './types.js';
+
+import {
+  SERVER_NAME,
+  SERVER_VERSION,
+  TOOL_NAMES,
+  TEMPERATURE_RANGE,
+  ERROR_MESSAGES,
+  LOG_MESSAGES,
+  createConfigFromEnvironment,
+} from './constants.js';
+
+import {
+  getApiKey,
+  processFiles,
+  buildMessageParts,
+  formatCodeBlocks,
+  formatExecutionResults,
+  formatFileErrors,
+  normalizeMediaResolution,
+  logServerConfig,
+} from './utils.js';
+
+/**
+ * API易 MCP 服务器类
+ * @description 处理 Gemini API 的多模态内容生成请求
+ */
+class ApiyiMcpServer {
+  private readonly server: Server;
+  private readonly config: ServerConfig;
   private genAI: GoogleGenAI | null = null;
-  private timeout: number;
-  private maxOutputTokens: number;
-  private defaultModel: string;
-  private maxFiles: number;
-  private maxTotalFileSize: number;
-  private defaultTemperature: number;
 
   constructor() {
-    // Read configuration from environment variables
-    this.timeout = parseInt(process.env.GEMINI_TIMEOUT || '300000'); // Default 5 minutes
-    this.maxOutputTokens = parseInt(process.env.GEMINI_MAX_OUTPUT_TOKENS || '8192'); // Default 8192
-    this.defaultModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash'; // Default gemini-2.5-flash
-    this.maxFiles = parseInt(process.env.GEMINI_MAX_FILES || '10'); // Default maximum 10 files
-    this.maxTotalFileSize = parseInt(process.env.GEMINI_MAX_TOTAL_FILE_SIZE || '50') * 1024 * 1024; // Default 50MB
-    this.defaultTemperature = parseFloat(process.env.GEMINI_TEMPERATURE || '0.2'); // Default 0.2
-
-    this.server = new Server(
-      {
-        name: 'aistudio-mcp-server',
-        version: '1.0.0',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
-
+    this.config = createConfigFromEnvironment();
+    this.server = this.createServer();
     this.setupToolHandlers();
     this.initializeGenAI();
   }
 
-  private initializeGenAI() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      console.error('GEMINI_API_KEY environment variable is required');
-      process.exit(1);
-    }
+  /**
+   * 创建 MCP 服务器实例
+   */
+  private createServer(): Server {
+    return new Server(
+      { name: SERVER_NAME, version: SERVER_VERSION },
+      { capabilities: { tools: {} } }
+    );
+  }
 
+  /**
+   * 初始化 Google GenAI 客户端
+   */
+  private initializeGenAI(): void {
     try {
-      this.genAI = new GoogleGenAI({ apiKey });
+      const apiKey = getApiKey();
       
-      // Display configuration information
-      console.error(`AI Studio MCP Server configuration:`);
-      console.error(`- Timeout: ${this.timeout}ms (${this.timeout / 1000}s)`);
-      console.error(`- Max Output Tokens: ${this.maxOutputTokens}`);
-      console.error(`- Default Model: ${this.defaultModel}`);
-      console.error(`- Max Files: ${this.maxFiles}`);
-      console.error(`- Max Total File Size: ${Math.round(this.maxTotalFileSize / 1024 / 1024)}MB`);
-      console.error(`- Default Temperature: ${this.defaultTemperature}`);
+      this.genAI = new GoogleGenAI({
+        apiKey,
+        httpOptions: { baseUrl: this.config.baseUrl },
+      });
+
+      logServerConfig(this.config);
     } catch (error) {
-      console.error('Failed to initialize Google GenAI:', error);
+      console.error(LOG_MESSAGES.INIT_FAILED(error));
       process.exit(1);
     }
   }
 
-  private setupToolHandlers() {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      return {
-        tools: [
-          {
-            name: 'generate_content',
-            description: 'Generate content using Gemini with optional file inputs, code execution, and Google search. Supports multiple files: images (JPG, PNG, GIF, WebP, SVG, BMP, TIFF), video (MP4, AVI, MOV, WebM, FLV, MPG, WMV), audio (MP3, WAV, AIFF, AAC, OGG, FLAC), documents (PDF), and text files (TXT, MD, JSON, XML, CSV, HTML). MIME type is auto-detected from file extension.\n\nExample usage:\n```json\n{\n  "user_prompt": "Analyze this video",\n  "files": [\n    {\n      "path": "/path/to/video.mp4"\n    }\n  ]\n}\n```\n\nPDF to Markdown conversion:\n```json\n{\n  "user_prompt": "Convert this PDF to well-formatted Markdown, preserving structure and formatting",\n  "files": [\n    {"path": "/document.pdf"}\n  ]\n}\n```\n\nWith Google Search:\n```json\n{\n  "user_prompt": "What are the latest AI breakthroughs in 2024?",\n  "enable_google_search": true\n}\n```\n\nWith Code Execution:\n```json\n{\n  "user_prompt": "Write and run a Python script to calculate prime numbers up to 100",\n  "enable_code_execution": true\n}\n```\n\nCombining features with thinking mode:\n```json\n{\n  "user_prompt": "Research quantum computing and create a Python simulation",\n  "model": "gemini-2.5-pro",\n  "enable_google_search": true,\n  "enable_code_execution": true,\n  "thinking_budget": -1\n}\n```',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                user_prompt: {
-                  type: 'string',
-                  description: 'User prompt for generation',
-                },
-                system_prompt: {
-                  type: 'string',
-                  description: 'System prompt to guide the AI behavior (optional)',
-                },
-                files: {
-                  type: 'array',
-                  description: 'Array of files to include in generation (optional). Supports images, video, audio, PDFs, and text files.',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      path: {
-                        type: 'string',
-                        description: 'Path to file',
-                      },
-                      content: {
-                        type: 'string',
-                        description: 'Base64 encoded file content (alternative to path)',
-                      },
-                      type: {
-                        type: 'string',
-                        description: 'MIME type of the file (optional, auto-detected from file extension if path provided)',
-                      },
-                    },
-                    required: [],
-                    oneOf: [
-                      { required: ['path'] },
-                      { required: ['content'] },
-                    ],
-                  },
-                  maxItems: this.maxFiles,
-                },
-                model: {
-                  type: 'string',
-                  description: 'Gemini model to use (optional)',
-                  default: this.defaultModel,
-                },
-                temperature: {
-                  type: 'number',
-                  description: 'Temperature for generation (0-2, default 0.2)',
-                  default: this.defaultTemperature,
-                  minimum: 0,
-                  maximum: 2,
-                },
-                enable_code_execution: {
-                  type: 'boolean',
-                  description: 'Enable code execution capability for the model',
-                  default: false,
-                },
-                enable_google_search: {
-                  type: 'boolean',
-                  description: 'Enable Google search capability for the model',
-                  default: false,
-                },
-                thinking_budget: {
-                  type: 'number',
-                  description: 'Thinking budget for models that support thinking mode (-1 for unlimited)',
-                  default: -1,
-                },
-              },
-              required: ['user_prompt'],
+  /**
+   * 设置工具处理器
+   */
+  private setupToolHandlers(): void {
+    this.server.setRequestHandler(ListToolsRequestSchema, () => this.handleListTools());
+    this.server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+      const { name, arguments: args = {} } = request.params;
+      return await this.handleCallTool(name, args);
+    });
+  }
+
+  /**
+   * 处理工具列表请求
+   */
+  private handleListTools() {
+    return {
+      tools: [this.createGenerateContentTool()],
+    };
+  }
+
+  /**
+   * 创建 generate_content 工具定义
+   */
+  private createGenerateContentTool() {
+    return {
+      name: TOOL_NAMES.GENERATE_CONTENT,
+      description: this.getToolDescription(),
+      inputSchema: this.getToolInputSchema(),
+    };
+  }
+
+  /**
+   * 获取工具描述
+   */
+  private getToolDescription(): string {
+    return `Generate content using Gemini with optional file inputs, code execution, and Google search. Supports multiple files: images (JPG, PNG, GIF, WebP, SVG, BMP, TIFF), video (MP4, AVI, MOV, WebM, FLV, MPG, WMV), audio (MP3, WAV, AIFF, AAC, OGG, FLAC), documents (PDF), and text files (TXT, MD, JSON, XML, CSV, HTML). MIME type is auto-detected from file extension.
+
+Example usage:
+\`\`\`json
+{
+  "user_prompt": "Analyze this video",
+  "files": [{"path": "/path/to/video.mp4"}]
+}
+\`\`\`
+
+PDF to Markdown conversion:
+\`\`\`json
+{
+  "user_prompt": "Convert this PDF to well-formatted Markdown",
+  "files": [{"path": "/document.pdf"}]
+}
+\`\`\`
+
+With Google Search:
+\`\`\`json
+{
+  "user_prompt": "What are the latest AI breakthroughs in 2024?",
+  "enable_google_search": true
+}
+\`\`\`
+
+With Code Execution:
+\`\`\`json
+{
+  "user_prompt": "Write and run a Python script to calculate prime numbers",
+  "enable_code_execution": true
+}
+\`\`\`
+
+Media Resolution Optimization (save tokens):
+\`\`\`json
+{
+  "user_prompt": "Describe this image",
+  "files": [{"path": "/image.jpg"}],
+  "media_resolution": "LOW"
+}
+\`\`\``;
+  }
+
+  /**
+   * 获取工具输入模式
+   */
+  private getToolInputSchema() {
+    return {
+      type: 'object',
+      properties: {
+        user_prompt: {
+          type: 'string',
+          description: 'User prompt for generation',
+        },
+        system_prompt: {
+          type: 'string',
+          description: 'System prompt to guide the AI behavior (optional)',
+        },
+        files: {
+          type: 'array',
+          description: 'Array of files to include in generation (optional)',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Path to file' },
+              content: { type: 'string', description: 'Base64 encoded file content' },
+              type: { type: 'string', description: 'MIME type (auto-detected if omitted)' },
             },
+            oneOf: [{ required: ['path'] }, { required: ['content'] }],
           },
-        ],
-      };
-    });
-
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-
-      try {
-        switch (name) {
-          case 'generate_content':
-            return await this.generateContent(args);
-          default:
-            throw new Error(`Unknown tool: ${name}`);
-        }
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
-          isError: true,
-        };
-      }
-    });
-  }
-
-  private getMimeType(filePath: string): string {
-    const path = require('path');
-    const ext = path.extname(filePath).toLowerCase();
-    
-    const mimeTypes: { [key: string]: string } = {
-      // Documents
-      '.pdf': 'application/pdf',
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      
-      // Images
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-      '.webp': 'image/webp',
-      '.svg': 'image/svg+xml',
-      '.bmp': 'image/bmp',
-      '.tiff': 'image/tiff',
-      '.tif': 'image/tiff',
-      
-      // Video
-      '.mp4': 'video/mp4',
-      '.avi': 'video/x-msvideo',
-      '.mov': 'video/quicktime',
-      '.webm': 'video/webm',
-      '.flv': 'video/x-flv',
-      '.mpg': 'video/mpeg',
-      '.mpeg': 'video/mpeg',
-      '.wmv': 'video/x-ms-wmv',
-      
-      // Audio
-      '.mp3': 'audio/mpeg',
-      '.wav': 'audio/wav',
-      '.aiff': 'audio/aiff',
-      '.aac': 'audio/aac',
-      '.ogg': 'audio/ogg',
-      '.flac': 'audio/flac',
-      
-      // Text
-      '.txt': 'text/plain',
-      '.md': 'text/markdown',
-      '.json': 'application/json',
-      '.xml': 'application/xml',
-      '.csv': 'text/csv',
-      '.html': 'text/html',
-      '.htm': 'text/html',
+          maxItems: this.config.maxFiles,
+        },
+        model: {
+          type: 'string',
+          description: 'Gemini model to use',
+          default: this.config.defaultModel,
+        },
+        temperature: {
+          type: 'number',
+          description: `Temperature (${TEMPERATURE_RANGE.MIN}-${TEMPERATURE_RANGE.MAX})`,
+          default: this.config.defaultTemperature,
+          minimum: TEMPERATURE_RANGE.MIN,
+          maximum: TEMPERATURE_RANGE.MAX,
+        },
+        enable_code_execution: {
+          type: 'boolean',
+          description: 'Enable code execution capability',
+          default: false,
+        },
+        enable_google_search: {
+          type: 'boolean',
+          description: 'Enable Google search capability',
+          default: false,
+        },
+        thinking_budget: {
+          type: 'number',
+          description: 'Thinking budget for supported models (-1 for unlimited)',
+          default: -1,
+        },
+        media_resolution: {
+          type: 'string',
+          description: 'Media resolution: LOW (saves tokens), MEDIUM, HIGH',
+          enum: ['LOW', 'MEDIUM', 'HIGH'],
+          default: this.config.defaultMediaResolution,
+        },
+      },
+      required: ['user_prompt'],
     };
-    
-    return mimeTypes[ext] || 'application/octet-stream';
   }
 
-  private async processFiles(files: any[]): Promise<{success: Array<{content: string, type: string, name?: string}>, errors: Array<{name?: string, error: string}>}> {
-    if (files.length > this.maxFiles) {
-      throw new Error(`Too many files: ${files.length}. Maximum allowed: ${this.maxFiles}`);
-    }
-    
-    const results = {
-      success: [] as Array<{content: string, type: string, name?: string}>,
-      errors: [] as Array<{name?: string, error: string}>
-    };
-    
-    let totalSize = 0;
-    
-    for (const file of files) {
-      try {
-        let fileContent: string;
-        let fileName: string | undefined;
-        
-        if (file.content) {
-          fileContent = file.content;
-          fileName = file.name || 'inline-content';
-        } else if (file.path) {
-          const fs = await import('fs');
-          const path = await import('path');
-          try {
-            // Resolve the path without blocking .. traversal
-            const resolvedPath = path.resolve(file.path);
-            const normalizedPath = path.normalize(file.path);
-            
-            // Log path access for monitoring (optional)
-            if (normalizedPath.includes('..') || normalizedPath.startsWith('/')) {
-              console.warn(`Accessing path: ${file.path}`);
-            }
-            
-            const buffer = fs.readFileSync(resolvedPath);
-            fileContent = buffer.toString('base64');
-            fileName = path.basename(resolvedPath);
-            
-            // Check individual file size (approximate base64 size)
-            const fileSize = buffer.length;
-            totalSize += fileSize;
-            
-            if (totalSize > this.maxTotalFileSize) {
-              results.errors.push({
-                name: fileName,
-                error: `Total file size exceeded: ${Math.round(totalSize / 1024 / 1024)}MB. Maximum allowed: ${Math.round(this.maxTotalFileSize / 1024 / 1024)}MB`
-              });
-              break;
-            }
-          } catch (error) {
-            results.errors.push({
-              name: file.path,
-              error: `Failed to read file: ${error}`
-            });
-            continue;
-          }
-        } else {
-          results.errors.push({
-            error: 'Either content or path must be provided for each file'
-          });
-          continue;
-        }
-        
-        const mimeType = file.type || (file.path ? this.getMimeType(file.path) : 'application/octet-stream');
-        
-        results.success.push({
-          content: fileContent,
-          type: mimeType,
-          name: fileName
-        });
-      } catch (error) {
-        results.errors.push({
-          name: file.path || file.name || 'unknown',
-          error: `Processing error: ${error}`
-        });
+  /**
+   * 处理工具调用请求
+   */
+  private async handleCallTool(
+    name: string,
+    args: Record<string, unknown>
+  ): Promise<CallToolResult> {
+    try {
+      if (name === TOOL_NAMES.GENERATE_CONTENT) {
+        return await this.generateContent(args as unknown as GenerateContentArgs);
       }
+      throw new Error(ERROR_MESSAGES.UNKNOWN_TOOL(name));
+    } catch (error) {
+      return this.createErrorResponse(error);
     }
-    
-    return results;
   }
 
+  /**
+   * 创建错误响应
+   */
+  private createErrorResponse(error: unknown): CallToolResult {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      content: [{ type: 'text', text: `Error: ${message}` } as TextContent],
+      isError: true,
+    };
+  }
 
-  private async generateContent(args: any) {
+  /**
+   * 生成内容
+   */
+  private async generateContent(args: GenerateContentArgs): Promise<CallToolResult> {
     if (!this.genAI) {
-      throw new Error('GenAI not initialized');
+      throw new Error(ERROR_MESSAGES.GENAI_NOT_INITIALIZED);
     }
 
-    const model = args.model || this.defaultModel;
-    
-    // Build contents array for conversation
-    const contents: any[] = [];
-    
-    // Build the current user message parts
-    const currentMessageParts: any[] = [{ text: args.user_prompt }];
+    const requestConfig = await this.buildRequestConfig(args);
+    return await this.executeGeneration(requestConfig);
+  }
 
-    // Process files if provided and add to current message
-    if (args.files && args.files.length > 0) {
-      const processedFiles = await this.processFiles(args.files);
-      
-      if (processedFiles.errors.length > 0) {
-        const errorMessages = processedFiles.errors.map(err => 
-          err.name ? `${err.name}: ${err.error}` : err.error
-        ).join('\n');
-        throw new Error(`File processing errors:\n${errorMessages}`);
-      }
-      
-      // Add successfully processed files to current message parts
-      processedFiles.success.forEach((file) => {
-        currentMessageParts.push({
-          inlineData: {
-            mimeType: file.type,
-            data: file.content,
-          },
-        });
-      });
+  /**
+   * 构建请求配置
+   */
+  private async buildRequestConfig(args: GenerateContentArgs): Promise<FullRequestConfig> {
+    const model = args.model ?? this.config.defaultModel;
+    const messageParts = await this.buildMessagePartsWithFiles(args);
+    const contents: MessageContent[] = [{ role: 'user', parts: messageParts }];
+    const config = this.buildGenerationConfig(args);
+
+    const requestConfig: FullRequestConfig = { model, contents, config };
+
+    if (args.system_prompt) {
+      requestConfig.systemInstruction = {
+        parts: [{ text: args.system_prompt }],
+      };
     }
-    
-    // Add the current user message
-    contents.push({
-      role: 'user',
-      parts: currentMessageParts
-    });
 
-    // Build tools array based on parameters
-    const tools: any[] = [];
+    return requestConfig;
+  }
+
+  /**
+   * 构建包含文件的消息部分
+   */
+  private async buildMessagePartsWithFiles(args: GenerateContentArgs) {
+    const files = args.files ?? [];
+    
+    if (files.length === 0) {
+      return [{ text: args.user_prompt }];
+    }
+
+    const processedFiles = processFiles(
+      files,
+      this.config.maxFiles,
+      this.config.maxTotalFileSize
+    );
+
+    if (processedFiles.errors.length > 0) {
+      throw new Error(`File processing errors:\n${formatFileErrors(processedFiles.errors)}`);
+    }
+
+    return buildMessageParts(args.user_prompt, processedFiles.success);
+  }
+
+  /**
+   * 构建生成配置
+   */
+  private buildGenerationConfig(args: GenerateContentArgs): RequestConfig {
+    const config: RequestConfig = {
+      maxOutputTokens: this.config.maxOutputTokens,
+      temperature: args.temperature ?? this.config.defaultTemperature,
+      responseModalities: ['TEXT'],
+    };
+
+    // 媒体分辨率优化
+    const mediaResolution = normalizeMediaResolution(
+      args.media_resolution ?? this.config.defaultMediaResolution
+    );
+    if (mediaResolution) {
+      config.mediaResolution = mediaResolution;
+    }
+
+    // 工具配置
+    const tools = this.buildTools(args);
+    if (tools.length > 0) {
+      config.tools = tools;
+    }
+
+    // 思维预算配置
+    if (args.thinking_budget !== undefined && args.thinking_budget !== -1) {
+      config.thinkingConfig = { thinkingBudget: args.thinking_budget };
+    }
+
+    return config;
+  }
+
+  /**
+   * 构建工具列表
+   */
+  private buildTools(args: GenerateContentArgs): Array<Record<string, unknown>> {
+    const tools: Array<Record<string, unknown>> = [];
+    
     if (args.enable_code_execution) {
       tools.push({ codeExecution: {} });
     }
     if (args.enable_google_search) {
       tools.push({ googleSearch: {} });
     }
-
-    // Prepare request configuration
-    const config: any = {
-      maxOutputTokens: this.maxOutputTokens,
-      temperature: args.temperature !== undefined ? args.temperature : this.defaultTemperature,
-    };
-
-    // Add tools to config if any are enabled
-    if (tools.length > 0) {
-      config.tools = tools;
-    }
-
-    // Add thinking config if thinking_budget is provided and not default
-    if (args.thinking_budget !== undefined && args.thinking_budget !== -1) {
-      config.thinkingConfig = {
-        thinkingBudget: args.thinking_budget
-      };
-    }
-
-    const requestConfig: any = {
-      model,
-      contents,
-      config,
-    };
     
-    // Add system instruction if provided
-    if (args.system_prompt) {
-      requestConfig.systemInstruction = {
-        parts: [{ text: args.system_prompt }]
-      };
-    }
+    return tools;
+  }
 
+  /**
+   * 执行生成请求
+   */
+  private async executeGeneration(requestConfig: FullRequestConfig): Promise<CallToolResult> {
     try {
-      // Use streaming API to handle all response types
-      const response = await this.genAI.models.generateContentStream(requestConfig);
-      
-      let fullText = '';
-      const codeBlocks: any[] = [];
-      const executionResults: any[] = [];
-
-      for await (const chunk of response) {
-        if (!chunk.candidates || !chunk.candidates[0].content || !chunk.candidates[0].content.parts) {
-          continue;
-        }
-
-        for (const part of chunk.candidates[0].content.parts) {
-          if (part.text) {
-            fullText += part.text;
-          }
-          if (part.executableCode) {
-            codeBlocks.push(part.executableCode);
-          }
-          if (part.codeExecutionResult) {
-            executionResults.push(part.codeExecutionResult);
-          }
-        }
-      }
-
-      // Build response content
-      const responseContent: any[] = [];
-      
-      if (fullText) {
-        responseContent.push({
-          type: 'text',
-          text: fullText || 'No content generated',
-        });
-      }
-
-      // Add code blocks if present
-      if (codeBlocks.length > 0) {
-        responseContent.push({
-          type: 'text',
-          text: '\n\n**Executable Code:**\n' + codeBlocks.map((code, i) => 
-            `\`\`\`${code.language || ''}\n${code.code}\n\`\`\``
-          ).join('\n\n')
-        });
-      }
-
-      // Add execution results if present
-      if (executionResults.length > 0) {
-        responseContent.push({
-          type: 'text',
-          text: '\n\n**Execution Results:**\n' + executionResults.map((result, i) => 
-            `Result ${i + 1}:\n${result.output || result.error || 'No output'}`
-          ).join('\n\n')
-        });
-      }
-
-      return {
-        content: responseContent.length > 0 ? responseContent : [{
-          type: 'text',
-          text: 'No content generated'
-        }],
-      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const response = await this.genAI!.models.generateContentStream(requestConfig as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return await this.processStreamResponse(response as any);
     } catch (error) {
-      throw new Error(`Gemini API error: ${error}`);
+      throw new Error(ERROR_MESSAGES.GEMINI_API_ERROR(error));
     }
   }
 
-  async start() {
+  /**
+   * 处理流式响应
+   */
+  private async processStreamResponse(
+    response: AsyncIterable<{ candidates?: Array<{ content?: { parts?: Array<{ text?: string; executableCode?: CodeBlock; codeExecutionResult?: CodeExecutionResult }> } }> }>
+  ): Promise<CallToolResult> {
+    let fullText = '';
+    const codeBlocks: CodeBlock[] = [];
+    const executionResults: CodeExecutionResult[] = [];
+
+    for await (const chunk of response) {
+      const parts = chunk.candidates?.[0]?.content?.parts;
+      if (!parts) continue;
+
+      for (const part of parts) {
+        if (part.text) fullText += part.text;
+        if (part.executableCode) codeBlocks.push(part.executableCode);
+        if (part.codeExecutionResult) executionResults.push(part.codeExecutionResult);
+      }
+    }
+
+    return this.buildResponse(fullText, codeBlocks, executionResults);
+  }
+
+  /**
+   * 构建响应
+   */
+  private buildResponse(
+    text: string,
+    codeBlocks: readonly CodeBlock[],
+    executionResults: readonly CodeExecutionResult[]
+  ): CallToolResult {
+    const content: TextContent[] = [];
+
+    if (text) {
+      content.push({ type: 'text', text });
+    }
+
+    const codeBlocksText = formatCodeBlocks(codeBlocks);
+    if (codeBlocksText) {
+      content.push({ type: 'text', text: codeBlocksText });
+    }
+
+    const resultsText = formatExecutionResults(executionResults);
+    if (resultsText) {
+      content.push({ type: 'text', text: resultsText });
+    }
+
+    if (content.length === 0) {
+      content.push({ type: 'text', text: 'No content generated' });
+    }
+
+    return { content };
+  }
+
+  /**
+   * 启动服务器
+   */
+  async start(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    
-    console.error('AI Studio MCP Server running on stdio');
+    console.error(LOG_MESSAGES.SERVER_RUNNING);
   }
 }
 
-async function main() {
-  const server = new AIStudioMCPServer();
+/**
+ * 主函数
+ */
+async function main(): Promise<void> {
+  const server = new ApiyiMcpServer();
   await server.start();
 }
 
-// Always run main when this file is loaded
+// 启动服务器
 main().catch((error) => {
-  console.error('Server error:', error);
+  console.error(LOG_MESSAGES.SERVER_ERROR(error));
   process.exit(1);
 });
 
-export { AIStudioMCPServer };
+export { ApiyiMcpServer };

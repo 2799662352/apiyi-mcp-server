@@ -1,0 +1,41 @@
+# API易 MCP Server Docker Compose
+# 支持 Gemini 原生多模态处理（视频/音频/图片/文档）
+
+version: '3.8'
+
+services:
+  apiyi-mcp:
+    build: .
+    image: apiyi-mcp-server:latest
+    container_name: apiyi-mcp-server
+    environment:
+      # API易 API 密钥 (必需，从 https://api.apiyi.com/ 获取)
+      - APIYI_API_KEY=${APIYI_API_KEY}
+      # API易 端点
+      - APIYI_BASE_URL=https://api.apiyi.com
+      # Gemini 模型
+      - GEMINI_MODEL=gemini-2.5-flash
+      # 超时设置 (毫秒)
+      - GEMINI_TIMEOUT=600000
+      # 最大输出 tokens
+      - GEMINI_MAX_OUTPUT_TOKENS=16384
+      # 最大文件数
+      - GEMINI_MAX_FILES=10
+      # 最大总文件大小 (MB)
+      - GEMINI_MAX_TOTAL_FILE_SIZE=100
+      # 默认温度
+      - GEMINI_TEMPERATURE=0.2
+      # 媒体分辨率优化 (LOW | MEDIUM | HIGH) - 节省 tokens 费用
+      - GEMINI_MEDIA_RESOLUTION=MEDIUM
+    volumes:
+      # 挂载本地视频/音频文件目录
+      - ./media:/app/media:ro
+      - ${HOME:-/tmp}/Downloads:/app/downloads:ro
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+
+
+
+
