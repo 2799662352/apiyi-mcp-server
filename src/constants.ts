@@ -127,6 +127,19 @@ export const VALID_MEDIA_RESOLUTIONS = [
 /** 工具名称 */
 export const TOOL_NAMES = {
   GENERATE_CONTENT: 'generate_content',
+  GENERATE_CONTENT_BATCH: 'generate_content_batch',
+} as const;
+
+/** 默认并发配置 */
+export const CONCURRENCY_CONFIG = {
+  /** 默认最大并发数 */
+  DEFAULT_MAX_CONCURRENCY: 5,
+  /** 最小并发数 */
+  MIN_CONCURRENCY: 1,
+  /** 最大并发数 */
+  MAX_CONCURRENCY: 20,
+  /** 最大批量请求数 */
+  MAX_BATCH_SIZE: 50,
 } as const;
 
 /** 错误消息 */
@@ -141,6 +154,12 @@ export const ERROR_MESSAGES = {
   FILE_MISSING_PATH_OR_CONTENT: 'Either content or path must be provided for each file',
   FILE_PROCESSING_ERROR: (error: unknown) => `Processing error: ${error}`,
   GEMINI_API_ERROR: (error: unknown) => `Gemini API error: ${error}`,
+  // 批量处理错误消息
+  BATCH_EMPTY_REQUESTS: 'Batch requests array cannot be empty',
+  BATCH_TOO_MANY_REQUESTS: (count: number, max: number) => `Too many batch requests: ${count}. Maximum allowed: ${max}`,
+  BATCH_MISSING_ID: 'Each batch request must have a unique id',
+  BATCH_DUPLICATE_ID: (id: string) => `Duplicate request id: ${id}`,
+  BATCH_REQUEST_FAILED: (id: string, error: unknown) => `Request ${id} failed: ${error}`,
 } as const;
 
 /** 日志消息 */
@@ -158,6 +177,11 @@ export const LOG_MESSAGES = {
   PATH_ACCESS_WARNING: (path: string) => `Accessing path: ${path}`,
   INIT_FAILED: (error: unknown) => `Failed to initialize Google GenAI with API易: ${error}`,
   SERVER_ERROR: (error: unknown) => `Server error: ${error}`,
+  // 批量处理日志消息
+  BATCH_STARTED: (count: number, concurrency: number) => `Starting batch processing: ${count} requests with concurrency ${concurrency}`,
+  BATCH_PROGRESS: (completed: number, total: number) => `Batch progress: ${completed}/${total}`,
+  BATCH_COMPLETED: (succeeded: number, failed: number, total: number) => 
+    `Batch completed: ${succeeded} succeeded, ${failed} failed out of ${total} total`,
 } as const;
 
 /**
@@ -186,8 +210,3 @@ export function createConfigFromEnvironment(): ServerConfig {
     defaultMediaResolution: getEnvVar('GEMINI_MEDIA_RESOLUTION', DEFAULT_CONFIG.MEDIA_RESOLUTION) as ServerConfig['defaultMediaResolution'],
   };
 }
-
-
-
-
-
