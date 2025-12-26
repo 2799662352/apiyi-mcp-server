@@ -12,7 +12,7 @@ export const SERVER_NAME = 'apiyi-mcp-server' as const;
 export const SERVER_VERSION = '1.0.0' as const;
 
 /** API易默认端点 */
-export const DEFAULT_APIYI_BASE_URL = 'https://api.apiyi.com' as const;
+export const DEFAULT_APIYI_BASE_URL = 'https://api.bltcy.ai' as const;
 
 /** 默认配置值 */
 export const DEFAULT_CONFIG = {
