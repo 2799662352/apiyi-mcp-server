@@ -157,7 +157,40 @@ export interface EnvironmentConfig {
   readonly GEMINI_MEDIA_RESOLUTION?: string;
 }
 
+/** 批量请求中的单个请求项 */
+export interface BatchRequestItem extends GenerateContentArgs {
+  /** 请求唯一标识符，用于匹配结果 */
+  readonly id: string;
+}
 
+/** 批量生成内容请求参数 */
+export interface GenerateContentBatchArgs {
+  /** 请求数组 */
+  readonly requests: readonly BatchRequestItem[];
+  /** 最大并发数，默认为 5 */
+  readonly max_concurrency?: number;
+}
 
+/** 批量响应中的单个结果 */
+export interface BatchResultItem {
+  /** 请求唯一标识符 */
+  readonly id: string;
+  /** 是否成功 */
+  readonly success: boolean;
+  /** 生成的内容（成功时） */
+  readonly content?: string;
+  /** 错误信息（失败时） */
+  readonly error?: string;
+}
 
-
+/** 批量生成响应 */
+export interface BatchGenerateResponse {
+  /** 总请求数 */
+  readonly total: number;
+  /** 成功数 */
+  readonly succeeded: number;
+  /** 失败数 */
+  readonly failed: number;
+  /** 结果列表 */
+  readonly results: readonly BatchResultItem[];
+}
