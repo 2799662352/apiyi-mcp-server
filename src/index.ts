@@ -24,6 +24,10 @@ import type {
   RequestConfig,
   FullRequestConfig,
   MessageContent,
+  GenerateContentBatchArgs,
+  BatchRequestItem,
+  BatchResultItem,
+  BatchGenerateResponse,
 } from './types.js';
 
 import {
@@ -33,6 +37,7 @@ import {
   TEMPERATURE_RANGE,
   ERROR_MESSAGES,
   LOG_MESSAGES,
+  CONCURRENCY_CONFIG,
   createConfigFromEnvironment,
 } from './constants.js';
 
@@ -108,7 +113,10 @@ class ApiyiMcpServer {
    */
   private handleListTools() {
     return {
-      tools: [this.createGenerateContentTool()],
+      tools: [
+        this.createGenerateContentTool(),
+        this.createGenerateContentBatchTool(),
+      ],
     };
   }
 
@@ -239,6 +247,151 @@ Media Resolution Optimization (save tokens):
   }
 
   /**
+   * 创建 generate_content_batch 批量并发工具定义
+   */
+  private createGenerateContentBatchTool() {
+    return {
+      name: TOOL_NAMES.GENERATE_CONTENT_BATCH,
+      description: this.getBatchToolDescription(),
+      inputSchema: this.getBatchToolInputSchema(),
+    };
+  }
+
+  /**
+   * 获取批量工具描述
+   */
+  private getBatchToolDescription(): string {
+    return `Generate multiple contents concurrently using Gemini. This tool allows you to send multiple requests in parallel for better performance.
+
+Each request in the batch requires a unique 'id' field to identify results. All other parameters are the same as generate_content.
+
+Example usage:
+\`\`\`json
+{
+  "requests": [
+    {
+      "id": "req1",
+      "user_prompt": "Describe image 1",
+      "files": [{"path": "/image1.jpg"}]
+    },
+    {
+      "id": "req2", 
+      "user_prompt": "Describe image 2",
+      "files": [{"path": "/image2.jpg"}]
+    },
+    {
+      "id": "req3",
+      "user_prompt": "Summarize this document",
+      "files": [{"path": "/doc.pdf"}]
+    }
+  ],
+  "max_concurrency": 5
+}
+\`\`\`
+
+The response includes success/failure status for each request:
+\`\`\`json
+{
+  "total": 3,
+  "succeeded": 2,
+  "failed": 1,
+  "results": [
+    {"id": "req1", "success": true, "content": "..."},
+    {"id": "req2", "success": true, "content": "..."},
+    {"id": "req3", "success": false, "error": "..."}
+  ]
+}
+\`\`\``;
+  }
+
+  /**
+   * 获取批量工具输入模式
+   */
+  private getBatchToolInputSchema() {
+    return {
+      type: 'object',
+      properties: {
+        requests: {
+          type: 'array',
+          description: 'Array of generation requests to process concurrently',
+          items: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'Unique identifier for this request (required)',
+              },
+              user_prompt: {
+                type: 'string',
+                description: 'User prompt for generation',
+              },
+              system_prompt: {
+                type: 'string',
+                description: 'System prompt to guide the AI behavior (optional)',
+              },
+              files: {
+                type: 'array',
+                description: 'Array of files to include (optional)',
+                items: {
+                  type: 'object',
+                  properties: {
+                    path: { type: 'string', description: 'Path to file' },
+                    content: { type: 'string', description: 'Base64 encoded file content' },
+                    type: { type: 'string', description: 'MIME type (auto-detected if omitted)' },
+                  },
+                },
+                maxItems: this.config.maxFiles,
+              },
+              model: {
+                type: 'string',
+                description: 'Gemini model to use',
+                default: this.config.defaultModel,
+              },
+              temperature: {
+                type: 'number',
+                description: 'Temperature (0-2)',
+                default: this.config.defaultTemperature,
+              },
+              enable_code_execution: {
+                type: 'boolean',
+                description: 'Enable code execution',
+                default: false,
+              },
+              enable_google_search: {
+                type: 'boolean',
+                description: 'Enable Google search',
+                default: false,
+              },
+              thinking_budget: {
+                type: 'number',
+                description: 'Thinking budget (-1 for unlimited)',
+                default: -1,
+              },
+              media_resolution: {
+                type: 'string',
+                description: 'Media resolution: LOW, MEDIUM, HIGH',
+                enum: ['LOW', 'MEDIUM', 'HIGH'],
+                default: this.config.defaultMediaResolution,
+              },
+            },
+            required: ['id', 'user_prompt'],
+          },
+          minItems: 1,
+          maxItems: CONCURRENCY_CONFIG.MAX_BATCH_SIZE,
+        },
+        max_concurrency: {
+          type: 'number',
+          description: `Maximum concurrent requests (${CONCURRENCY_CONFIG.MIN_CONCURRENCY}-${CONCURRENCY_CONFIG.MAX_CONCURRENCY})`,
+          default: CONCURRENCY_CONFIG.DEFAULT_MAX_CONCURRENCY,
+          minimum: CONCURRENCY_CONFIG.MIN_CONCURRENCY,
+          maximum: CONCURRENCY_CONFIG.MAX_CONCURRENCY,
+        },
+      },
+      required: ['requests'],
+    };
+  }
+
+  /**
    * 处理工具调用请求
    */
   private async handleCallTool(
@@ -248,6 +401,9 @@ Media Resolution Optimization (save tokens):
     try {
       if (name === TOOL_NAMES.GENERATE_CONTENT) {
         return await this.generateContent(args as unknown as GenerateContentArgs);
+      }
+      if (name === TOOL_NAMES.GENERATE_CONTENT_BATCH) {
+        return await this.generateContentBatch(args as unknown as GenerateContentBatchArgs);
       }
       throw new Error(ERROR_MESSAGES.UNKNOWN_TOOL(name));
     } catch (error) {
@@ -276,6 +432,156 @@ Media Resolution Optimization (save tokens):
 
     const requestConfig = await this.buildRequestConfig(args);
     return await this.executeGeneration(requestConfig);
+  }
+
+  /**
+   * 批量并发生成内容
+   */
+  private async generateContentBatch(args: GenerateContentBatchArgs): Promise<CallToolResult> {
+    if (!this.genAI) {
+      throw new Error(ERROR_MESSAGES.GENAI_NOT_INITIALIZED);
+    }
+
+    // 验证请求
+    this.validateBatchRequest(args);
+
+    const { requests } = args;
+    const maxConcurrency = Math.min(
+      Math.max(args.max_concurrency ?? CONCURRENCY_CONFIG.DEFAULT_MAX_CONCURRENCY, CONCURRENCY_CONFIG.MIN_CONCURRENCY),
+      CONCURRENCY_CONFIG.MAX_CONCURRENCY
+    );
+
+    console.error(LOG_MESSAGES.BATCH_STARTED(requests.length, maxConcurrency));
+
+    // 使用并发控制执行所有请求
+    const results = await this.executeWithConcurrencyLimit(
+      requests as BatchRequestItem[],
+      maxConcurrency
+    );
+
+    // 统计结果
+    const succeeded = results.filter(r => r.success).length;
+    const failed = results.length - succeeded;
+
+    console.error(LOG_MESSAGES.BATCH_COMPLETED(succeeded, failed, results.length));
+
+    // 构建响应
+    const response: BatchGenerateResponse = {
+      total: results.length,
+      succeeded,
+      failed,
+      results,
+    };
+
+    return {
+      content: [{ type: 'text', text: JSON.stringify(response, null, 2) } as TextContent],
+    };
+  }
+
+  /**
+   * 验证批量请求
+   */
+  private validateBatchRequest(args: GenerateContentBatchArgs): void {
+    const { requests } = args;
+
+    if (!requests || requests.length === 0) {
+      throw new Error(ERROR_MESSAGES.BATCH_EMPTY_REQUESTS);
+    }
+
+    if (requests.length > CONCURRENCY_CONFIG.MAX_BATCH_SIZE) {
+      throw new Error(ERROR_MESSAGES.BATCH_TOO_MANY_REQUESTS(requests.length, CONCURRENCY_CONFIG.MAX_BATCH_SIZE));
+    }
+
+    // 检查 id 唯一性
+    const ids = new Set<string>();
+    for (const request of requests) {
+      if (!request.id) {
+        throw new Error(ERROR_MESSAGES.BATCH_MISSING_ID);
+      }
+      if (ids.has(request.id)) {
+        throw new Error(ERROR_MESSAGES.BATCH_DUPLICATE_ID(request.id));
+      }
+      ids.add(request.id);
+    }
+  }
+
+  /**
+   * 使用并发限制执行请求
+   */
+  private async executeWithConcurrencyLimit(
+    requests: BatchRequestItem[],
+    maxConcurrency: number
+  ): Promise<BatchResultItem[]> {
+    const results: BatchResultItem[] = [];
+    const executing = new Set<Promise<void>>();
+    let completedCount = 0;
+
+    for (const request of requests) {
+      // 创建执行任务
+      const task = (async (): Promise<void> => {
+        const result = await this.executeSingleBatchRequest(request);
+        results.push(result);
+        completedCount++;
+        
+        // 每完成 5 个请求或全部完成时打印进度
+        if (completedCount % 5 === 0 || completedCount === requests.length) {
+          console.error(LOG_MESSAGES.BATCH_PROGRESS(completedCount, requests.length));
+        }
+      })();
+
+      executing.add(task);
+      task.finally(() => executing.delete(task));
+
+      // 如果达到并发限制，等待任意一个完成
+      if (executing.size >= maxConcurrency) {
+        await Promise.race(executing);
+      }
+    }
+
+    // 等待所有剩余任务完成
+    await Promise.all(executing);
+
+    // 按原始顺序排序结果
+    const idOrder = new Map(requests.map((r, i) => [r.id, i]));
+    results.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
+
+    return results;
+  }
+
+  /**
+   * 执行单个批量请求
+   */
+  private async executeSingleBatchRequest(request: BatchRequestItem): Promise<BatchResultItem> {
+    try {
+      const result = await this.generateContent(request);
+      
+      // 提取文本内容
+      const textContent = result.content
+        .filter((c): c is TextContent => c.type === 'text')
+        .map(c => c.text)
+        .join('\n');
+
+      if (result.isError) {
+        return {
+          id: request.id,
+          success: false,
+          error: textContent,
+        };
+      }
+
+      return {
+        id: request.id,
+        success: true,
+        content: textContent,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        id: request.id,
+        success: false,
+        error: errorMessage,
+      };
+    }
   }
 
   /**
