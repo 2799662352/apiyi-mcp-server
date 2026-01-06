@@ -11,3 +11,7 @@ coverage/
 *.swo
 *~
 package-lock.json
+
+# 临时文档文件
+*.pptx
+*.docx
