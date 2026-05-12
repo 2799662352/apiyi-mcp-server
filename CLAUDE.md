@@ -90,7 +90,7 @@ docker run -it --rm \
 |------|------|--------|
 | `APIYI_API_KEY` | API易 密钥 (必需) | - |
 | `APIYI_BASE_URL` | API易 端点 | `https://api.apiyi.com` |
-| `GEMINI_MODEL` | 默认模型 | `gemini-2.5-flash` |
+| `GEMINI_MODEL` | 默认模型 | `gemini-3.1-pro-preview-thinking` |
 | `GEMINI_TIMEOUT` | 超时 (ms) | `300000` |
 | `GEMINI_MAX_OUTPUT_TOKENS` | 最大输出 tokens | `8192` |
 | `GEMINI_MAX_FILES` | 最大文件数 | `10` |

@@ -21,7 +21,7 @@ export const DEFAULT_CONFIG = {
   /** 默认最大输出 tokens */
   MAX_OUTPUT_TOKENS: 8192,
   /** 默认模型 */
-  MODEL: 'gemini-3-pro-preview',
+  MODEL: 'gemini-3.1-pro-preview-thinking',
   /** 默认最大文件数 */
   MAX_FILES: 10,
   /** 默认最大总文件大小 (MB) */

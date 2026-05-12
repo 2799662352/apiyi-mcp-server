@@ -30,8 +30,8 @@ RUN npm prune --production
 ENV APIYI_API_KEY=""
 # API易 端点 (默认)
 ENV APIYI_BASE_URL="https://api.apiyi.com"
-# 模型配置
-ENV GEMINI_MODEL="gemini-2.5-flash"
+# 模型配置 (默认使用 Gemini 3.1 思维链模型；如需快速响应可改为 gemini-2.5-flash)
+ENV GEMINI_MODEL="gemini-3.1-pro-preview-thinking"
 # 超时设置 (毫秒)
 ENV GEMINI_TIMEOUT="600000"
 # 最大输出 tokens

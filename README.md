@@ -38,7 +38,7 @@
       "args": ["D:/jianji_FFMPEG/apiyi-mcp-server/dist/index.js"],
       "env": {
         "APIYI_API_KEY": "你的API易密钥",
-        "GEMINI_MODEL": "gemini-2.5-flash",
+        "GEMINI_MODEL": "gemini-3.1-pro-preview-thinking",
         "APIYI_BASE_URL": "https://api.apiyi.com"
       }
     }
@@ -175,7 +175,7 @@ npm start
 | `GEMINI_API_KEY` | 备用：Google AI Studio 密钥 | - |
 | `APIYI_BASE_URL` | API易 端点 | `https://api.apiyi.com` |
 | `GEMINI_BASE_URL` | 备用：自定义端点 | - |
-| `GEMINI_MODEL` | 默认模型 | `gemini-2.5-flash` |
+| `GEMINI_MODEL` | 默认模型 | `gemini-3.1-pro-preview-thinking` |
 | `GEMINI_TIMEOUT` | 超时时间 (ms) | `300000` (5分钟) |
 | `GEMINI_MAX_OUTPUT_TOKENS` | 最大输出 tokens | `8192` |
 | `GEMINI_MAX_FILES` | 最大文件数 | `10` |
@@ -240,15 +240,16 @@ npm start
 }
 ```
 
-### 思维链推理 (Gemini 2.5)
+### 思维链推理 (Gemini 3.1 Thinking)
 
 ```json
 {
   "user_prompt": "详细分析量子计算的技术方案",
-  "model": "gemini-2.5-pro",
-  "thinking_budget": 8192
+  "model": "gemini-3.1-pro-preview-thinking"
 }
 ```
+
+> Gemini 3.1 思维链版本默认开启 thinking，无需手动指定 `thinking_budget`。若你仍想精细控制，可继续传 `thinking_budget` 参数。
 
 ### 💰 媒体分辨率优化 (节省费用)
 
@@ -278,10 +279,10 @@ npm start
 
 | 模型 | 描述 |
 |------|------|
-| `gemini-2.5-flash` | 混合推理，快速响应 |
-| `gemini-2.5-pro` | 纯推理型，深度分析 |
-| `gemini-3-pro-preview` | 最新预览版 |
-| `gemini-2.0-flash` | 快速版本 |
+| `gemini-3.1-pro-preview-thinking` | **默认**：Gemini 3.1 思维链版本，最强复杂任务/长上下文 |
+| `gemini-3.1-pro-preview` | Gemini 3.1 标准版（不开 thinking，速度更快） |
+| `gemini-3-pro-preview` | Gemini 3 预览版（上一代） |
+| `gemini-2.5-flash` | 混合推理，响应最快，适合简单识别 |
 
 ## ⚠️ 注意事项
 
