@@ -112,6 +112,45 @@ docker logs -f apiyi-mcp-server
 }
 ```
 
+#### Windows + Cursor 完整实战配置（含长输出 / 长超时 / Gemini 3.1 思维链）
+
+下面这份是经过实测可用的 Windows 配置：把整个 `D:\` 盘以只读方式挂进容器内的 `/app/media`，这样 Cursor 里给 `files.path` 传 `D:/video/foo.mp4` 也能直接被容器读到；同时通过 `-e` 单独声明环境变量（key 从 `env` 字段注入，避免在 `args` 里出现明文密钥）。
+
+```json
+{
+  "mcpServers": {
+    "apiyi": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "APIYI_API_KEY",
+        "-e", "GEMINI_MODEL",
+        "-e", "APIYI_BASE_URL",
+        "-e", "GEMINI_MAX_OUTPUT_TOKENS",
+        "-e", "GEMINI_TIMEOUT",
+        "-v", "D:/:/app/media:ro",
+        "zuozuoliang999/apiyi-mcp-server:latest"
+      ],
+      "env": {
+        "APIYI_API_KEY": "sk-YOUR_API_KEY_HERE",
+        "GEMINI_MODEL": "gemini-3.1-pro-preview-thinking",
+        "APIYI_BASE_URL": "https://api.apiyi.com",
+        "GEMINI_MAX_OUTPUT_TOKENS": "65536",
+        "GEMINI_TIMEOUT": "1800000"
+      }
+    }
+  }
+}
+```
+
+要点说明：
+
+- `-v D:/:/app/media:ro`：把整个 `D:` 盘只读挂载到容器，Cursor 中无论传 `D:/...` 还是 `D:\...` 路径都能命中容器内 `/app/media/...`。
+- 用 `-e KEY` + `env.KEY` 的分离写法，可避免把密钥明文写在 `args` 中（args 在某些日志里会被打印）。
+- `GEMINI_MAX_OUTPUT_TOKENS=65536`：跑长视频/长文档分析时建议放开，默认 8192 容易被截断。
+- `GEMINI_TIMEOUT=1800000`（30 分钟）：搭配 thinking 模型/大文件多模态分析时避免提前超时。
+- `GEMINI_MODEL=gemini-3.1-pro-preview-thinking`：开启 Gemini 3.1 思维链模型；如想节省成本可改回 `gemini-2.5-flash`。
+
 ### 4. 本地开发 (需要 Node.js)
 
 ```bash
