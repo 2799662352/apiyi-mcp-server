@@ -13,8 +13,11 @@ services:
       - APIYI_API_KEY=${APIYI_API_KEY}
       # API易 端点
       - APIYI_BASE_URL=https://api.apiyi.com
-      # Gemini 模型 (默认使用 3.1 思维链；快速响应场景可改为 gemini-2.5-flash)
-      - GEMINI_MODEL=gemini-3.1-pro-preview-thinking
+      # Gemini 模型
+      #   gemini-3.5-flash               ← 默认,综合性价比最高
+      #   gemini-3.1-pro-preview-thinking 深度推理 / 思维链,贵且慢
+      #   gemini-3-flash-preview          最便宜,适合大批量简单任务
+      - GEMINI_MODEL=gemini-3.5-flash
       # 超时设置 (毫秒)
       - GEMINI_TIMEOUT=600000
       # 最大输出 tokens

@@ -20,8 +20,8 @@ export const DEFAULT_CONFIG = {
   TIMEOUT_MS: 300_000,
   /** 默认最大输出 tokens */
   MAX_OUTPUT_TOKENS: 8192,
-  /** 默认模型 */
-  MODEL: 'gemini-3.1-pro-preview-thinking',
+  /** 默认模型(Gemini 3.x 综合性价比最高;旧的 2.5 系列已不再推荐) */
+  MODEL: 'gemini-3.5-flash',
   /** 默认最大文件数 */
   MAX_FILES: 10,
   /** 默认最大总文件大小 (MB) */

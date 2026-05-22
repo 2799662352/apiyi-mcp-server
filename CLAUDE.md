@@ -90,13 +90,24 @@ docker run -it --rm \
 |------|------|--------|
 | `APIYI_API_KEY` | API易 密钥 (必需) | - |
 | `APIYI_BASE_URL` | API易 端点 | `https://api.apiyi.com` |
-| `GEMINI_MODEL` | 默认模型 | `gemini-3.1-pro-preview-thinking` |
+| `GEMINI_MODEL` | 默认模型 | `gemini-3.5-flash` |
 | `GEMINI_TIMEOUT` | 超时 (ms) | `300000` |
 | `GEMINI_MAX_OUTPUT_TOKENS` | 最大输出 tokens | `8192` |
 | `GEMINI_MAX_FILES` | 最大文件数 | `10` |
 | `GEMINI_MAX_TOTAL_FILE_SIZE` | 最大总大小 (MB) | `50` |
 | `GEMINI_TEMPERATURE` | 温度参数 | `0.2` |
 | `GEMINI_MEDIA_RESOLUTION` | 媒体分辨率 | `MEDIUM` |
+
+## 推荐模型(Gemini 3.x 系列)
+
+> 旧的 `gemini-2.x` 系列已不再推荐 — `GEMINI_MODEL` 接受任何字符串,
+> 用户可在 MCP JSON 编辑器随时覆盖,服务端不强制白名单。
+
+| 模型 | 价/速 | 强项 | 何时选 |
+|------|-------|------|--------|
+| `gemini-3.5-flash` ← **默认** | 便宜 + 快 | 综合最强 | 99% 场景 |
+| `gemini-3.1-pro-preview-thinking` | 贵 + 慢 | 深度推理 / 思维链 | 复杂分析、需要 `thinking_budget` |
+| `gemini-3-flash-preview` | 最便宜 | 简单任务最省 token | 量大、不在意精度 |
 
 ## 主要功能
 

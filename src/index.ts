@@ -210,7 +210,19 @@ Media Resolution Optimization (save tokens):
         },
         model: {
           type: 'string',
-          description: 'Gemini model to use',
+          description: [
+            'Gemini model to use. Choose from these Gemini 3.x models ONLY:',
+            '  - "gemini-3.5-flash"               DEFAULT — best price/perf, fast. Pick this 99% of the time (including video, audio, image, PDF).',
+            '  - "gemini-3.1-pro-preview-thinking" Slow + expensive. ONLY use when you need deep reasoning / a non-trivial `thinking_budget`.',
+            '  - "gemini-3-flash-preview"          Cheapest + dumbest. ONLY for high-volume simple classification / extraction.',
+            'NEVER pass legacy Gemini 2.x ids (gemini-2.5-pro, gemini-2.5-flash, gemini-pro, gemini-flash). They are DEPRECATED for this server.',
+            'If omitted, the server falls back to the env-configured default (typically "gemini-3.5-flash").',
+          ].join('\n'),
+          enum: [
+            'gemini-3.5-flash',
+            'gemini-3.1-pro-preview-thinking',
+            'gemini-3-flash-preview',
+          ],
           default: this.config.defaultModel,
         },
         temperature: {
@@ -344,7 +356,18 @@ The response includes success/failure status for each request:
               },
               model: {
                 type: 'string',
-                description: 'Gemini model to use',
+                description: [
+                  'Gemini model to use (per-request override). Choose from Gemini 3.x ONLY:',
+                  '  - "gemini-3.5-flash"               DEFAULT — best price/perf.',
+                  '  - "gemini-3.1-pro-preview-thinking" Deep reasoning only.',
+                  '  - "gemini-3-flash-preview"          Cheapest, simple tasks.',
+                  'NEVER pass legacy 2.x ids (gemini-2.5-pro, gemini-2.5-flash, ...) — deprecated.',
+                ].join('\n'),
+                enum: [
+                  'gemini-3.5-flash',
+                  'gemini-3.1-pro-preview-thinking',
+                  'gemini-3-flash-preview',
+                ],
                 default: this.config.defaultModel,
               },
               temperature: {
